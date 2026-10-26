@@ -139,22 +139,17 @@ function agg(){const m=new Map();
  return [...m.values()].sort((a,b)=>b.tier-a.tier||b.v.length-a.v.length||a.n.localeCompare(b.n))}
 
 function sub(c,f){db.collection(c).onSnapshot(s=>{f(s);rr()},e=>{err="Couldn’t load "+c+" ("+e.code+").";rr()})}
-let email="",unsub=null,authMode="in",authReady=false;
-(()=>{
- try{firebase.initializeApp(FB);db=firebase.firestore()}
- catch(e){err="Couldn’t connect. Check the Firebase setup ("+(e.code||e.message)+").";loaded=true;authReady=true;return render()}
+(async()=>{
+ try{firebase.initializeApp(FB);db=firebase.firestore();await firebase.auth().signInAnonymously();me=firebase.auth().currentUser.uid}
+ catch(e){err="Couldn’t connect. Check the Firebase setup ("+(e.code||e.message)+").";loaded=true;return render()}
  const arr=s=>s.docs.map(d=>({id:d.id,...d.data()}));
  sub("players",s=>{players=arr(s);loaded=true});sub("roles",s=>{roles={};s.docs.forEach(d=>roles[d.id]=d.data().role)});
  sub("quests",s=>quests=arr(s));sub("bounties",s=>bounties=arr(s));sub("list",s=>list=arr(s));
  db.collection("chat").orderBy("t","desc").limit(40).onSnapshot(s=>{chat=arr(s).reverse();const l=chat[chat.length-1];if(l&&l.uid!==me&&view.t==="chat")snd("msg");rr()},()=>{});
  db.doc("config/points").onSnapshot(s=>{cfg=s.data()||{};rr()},()=>{});
- firebase.auth().onAuthStateChanged(u=>{me=u?u.uid:null;email=u?u.email:"";adm=false;if(unsub)unsub();unsub=null;
-  if(me)unsub=db.doc("admins/"+me).onSnapshot(s=>{adm=s.exists;if(adm&&roles[me]!=="owner")db.doc("roles/"+me).set({role:"owner"}).catch(()=>{});rr()},()=>{});
-  authReady=true;view={t:"demons",fresh:true};rr()});
+ db.doc("admins/"+me).onSnapshot(s=>{adm=s.exists;if(adm&&roles[me]!=="owner")db.doc("roles/"+me).set({role:"owner"}).catch(()=>{});rr()},()=>{});
+ render();
 })();
-function authP(){const up=authMode==="up";
- return `<div class="card panel" style="max-width:380px;margin:30px auto"><h1>${up?"Create account":"Sign in"}</h1><label>Email<input id="ae" type="email" autocomplete="email"></label><label>Password<input id="ap" type="password" minlength="6" autocomplete="${up?"new-password":"current-password"}"></label><button class="btn" data-a="auth">${up?"Sign up":"Sign in"}</button><button class="link" data-a="amode">${up?"Have an account? Sign in":"New here? Create an account"}</button>${up?"":`<button class="link" data-a="reset">Forgot password?</button>`}</div>`}
-const AM={"auth/invalid-credential":"Wrong email or password.","auth/wrong-password":"Wrong email or password.","auth/user-not-found":"Wrong email or password.","auth/email-already-in-use":"That email already has an account.","auth/weak-password":"Password must be at least 6 characters.","auth/invalid-email":"That email doesn’t look right.","auth/missing-password":"Enter a password.","auth/operation-not-allowed":"Email sign-in isn’t turned on in Firebase yet.","auth/too-many-requests":"Too many tries. Wait a bit and try again."};
 function rr(){const a=document.activeElement;if(a&&app.contains(a)&&/INPUT|TEXTAREA|SELECT/.test(a.tagName)){if(view.t==="chat"&&$(".msgs")){$(".msgs").innerHTML=msgs();$(".msgs").scrollTop=1e9}else dirty=true;return}render()}
 app.addEventListener("focusout",()=>setTimeout(()=>{if(dirty&&!app.contains(document.activeElement)){dirty=false;render()}},50));
 const go=v=>{view={...v,fresh:true};render();scrollTo(0,0)};
@@ -164,8 +159,7 @@ function render(){
  const act=view.t==="d"?"demons":view.t==="p"&&view.id===me?"me":view.t;
  document.querySelectorAll(".nav").forEach(b=>b.classList.toggle("on",b.dataset.n===act));
  let h=err?`<div class="err" role="alert">${esc(err)}</div>`:"";
- if(!loaded||!authReady)h+=`<p class="mut">Loading…</p>`;
- else if(!me)h+=authP();
+ if(!loaded)h+=`<p class="mut">Loading…</p>`;
  else h+=({demons,d:()=>demon(view.k),board,p:()=>profile(view.id),bounty,quest,shop,chat:chatP,set:settings}[view.t]||demons)();
  app.className=fr?"anim":"";app.innerHTML=h;
  if(view.t==="set")fillSet();
@@ -199,7 +193,7 @@ function board(){const s=srt();
 function profile(id){
  const p=players.find(x=>x.id===id&&x.name),own=id===me;
  if(!p){if(!own)return `<p class="mut">That player isn’t on the list.</p>`;if(!me)return `<p class="mut">Still connecting. Try again in a moment.</p>`;
-  return `<h1>Create your profile</h1><div class="card panel"><label>Username (can’t be changed later)<input id="pn" maxlength="32"></label><label>Country<select id="pf">${fopts("")}</select></label><span class="mut">Your profile is saved to your account, so you can sign in from any device.</span><button class="btn" data-a="mk">Create profile</button></div>`}
+  return `<h1>Create your profile</h1><div class="card panel"><label>Username (can’t be changed later)<input id="pn" maxlength="32"></label><label>Country<select id="pf">${fopts("")}</select></label><span class="mut">Your profile is saved to this browser. Clearing site data starts a new one.</span><button class="btn" data-a="mk">Create profile</button></div>`}
  const L=p.levels||[],x=E(p),ri=rk(x),nx=R[ri+1],e=p.equip||{},ps=pos(id),bn=okc("ban",e.ban)?"b-"+e.ban:"",fr=okc("frm",e.frm)?"f-"+e.frm:"",c={...p,L,e:x,rk:ps};
  let h=`<button class="link" data-a="board">← Players</button><div class="card prof" style="margin-top:12px"><div class="bn ${bn}" ${bn?"":`style="background:${R[ri][2]}"`}></div>
  <div class="ph-head"><div class="av ${fr}" ${fr?"":`style="background:${R[ri][2]}"`}><div>${esc((p.display||p.name)[0].toUpperCase())}</div></div>
@@ -243,14 +237,14 @@ const msgs=()=>chat.map(m=>{const p=players.find(x=>x.id===m.uid),mn=m.uid===me,
 function chatP(){return `<h1>Chat</h1><div class="card msgs" style="margin-top:12px">${msgs()}</div>${mine()?`<div class="send"><input id="cm" maxlength="200" placeholder="Message" autocomplete="off"><button class="btn" data-a="send">Send</button></div>`:`<p class="mut">Create a profile to chat.</p>`}`}
 function settings(){return `<h1>Settings</h1><div class="card panel"><label>Theme<select id="sm"><option value="dark">Dark</option><option value="light">Light</option><option value="custom">Custom colors</option></select></label><div class="row"><label>Custom accent<input id="sa" type="color"></label><label>Custom background<input id="sb" type="color"></label></div><label style="display:flex;gap:8px;align-items:center"><input id="sf" type="checkbox" style="width:auto">Glow and motion effects</label><label style="display:flex;gap:8px;align-items:center"><input id="ss" type="checkbox" style="width:auto">Sound effects</label></div>
  ${adm?`<h2>Owner: points per difficulty</h2><div class="card panel"><div class="row">${T.map((t,i)=>`<label>${t[0]}<input id="pt${i}" type="number" min="0" max="1000" value="${P(i)}"></label>`).join("")}</div><button class="btn" data-a="pts">Save points</button></div>`:""}
- <h2>Account</h2><div class="card panel"><span>${esc(email)}</span><button class="btn alt" data-a="out">Sign out</button></div><h2>Your ID</h2><div class="card panel"><code style="word-break:break-all">${esc(me)}</code><span class="mut">Owner setup: in Firebase, create a document in the admins collection using this ID as the document ID.</span></div>`}
+ <h2>Your ID</h2><div class="card panel"><code style="word-break:break-all">${esc(me)}</code><span class="mut">Owner setup: in Firebase, create a document in the admins collection using this ID as the document ID.</span></div>`}
 function fillSet(){$("#sm").value=S.m||(matchMedia("(prefers-color-scheme: light)").matches?"light":"dark");$("#sa").value=S.a||"#00d1b2";$("#sb").value=S.b||"#101820";$("#sf").checked=S.f!==false;$("#ss").checked=S.s!==false}
 
 document.addEventListener("change",e=>{const t=e.target;
  if(t.dataset.role)return W(()=>t.value?db.doc("roles/"+t.dataset.role).set({role:t.value}):db.doc("roles/"+t.dataset.role).delete());
  const m={sm:["m",t.value],sf:["f",t.checked],ss:["s",t.checked]}[t.id];if(m){S[m[0]]=m[1];sv();applyTheme();snd("ok")}});
 document.addEventListener("input",e=>{const t=e.target;if(t.id==="sa"||t.id==="sb"){S[t.id==="sa"?"a":"b"]=t.value;S.m="custom";sv();applyTheme();$("#sm").value="custom"}});
-document.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.id==="ap"){const x=$('[data-a="auth"]');x&&x.click()}if(e.key==="Enter"&&e.target.id==="cm")send()});
+document.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.id==="cm")send()});
 function send(){const i=$("#cm"),t=i&&i.value.trim();if(!t||!mine()||Date.now()-(send.l||0)<800)return;send.l=Date.now();i.value="";W(()=>db.collection("chat").add({uid:me,text:t.slice(0,200),t:Date.now()}))}
 const num=v=>Math.max(0,Math.min(1000,Math.round(+v||0)));
 
@@ -259,12 +253,6 @@ document.addEventListener("click",async e=>{
  const a=b.dataset.a,d=b.dataset,i=+d.i;
  const G={demons:{t:"demons"},board:{t:"board"},bounty:{t:"bounty"},quest:{t:"quest"},shop:{t:"shop"},chat:{t:"chat"},set:{t:"set"},d:{t:"d",k:d.k},p:{t:"p",id:d.id},me:{t:"p",id:me}};
  if(G[a])return go(G[a]);
- if(a==="amode"){authMode=authMode==="in"?"up":"in";err="";return render()}
- if(a==="out")return firebase.auth().signOut();
- if(a==="auth"||a==="reset"){const em=$("#ae").value.trim(),au=firebase.auth();
-  try{if(a==="reset"){await au.sendPasswordResetEmail(em);err="";return toast("Reset email sent")}
-   await(authMode==="up"?au.createUserWithEmailAndPassword(em,$("#ap").value):au.signInWithEmailAndPassword(em,$("#ap").value));err=""}
-  catch(x){err=AM[x.code]||"Couldn’t sign in ("+x.code+").";snd("err");render()}return}
  if(!db||!me)return;
  const p=mine(),L=p?[...(p.levels||[])]:[],e2=p?p.equip||{}:{};
  if(a==="mk"){const n=$("#pn").value.trim();if(n.length<2)return;
